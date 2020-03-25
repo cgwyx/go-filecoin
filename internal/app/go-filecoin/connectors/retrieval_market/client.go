@@ -14,7 +14,6 @@ import (
 	xerrors "github.com/pkg/errors"
 
 	"github.com/filecoin-project/go-filecoin/internal/app/go-filecoin/connectors"
-	"github.com/filecoin-project/go-filecoin/internal/pkg/block"
 	"github.com/filecoin-project/go-filecoin/internal/pkg/types"
 )
 
@@ -24,10 +23,10 @@ type RetrievalClientConnector struct {
 	bs blockstore.Blockstore
 
 	// APIs/interfaces
-	paychMgr PaychMgrAPI
-	signer   RetrievalSigner
-	client   retrievalmarket.RetrievalClient
-	cs       ChainReaderAPI
+	paychMgr    PaychMgrAPI
+	signer      RetrievalSigner
+	client      retrievalmarket.RetrievalClient
+	chainReader connectors.ChainReader
 }
 
 var _ retrievalmarket.RetrievalClientNode = new(RetrievalClientConnector)
@@ -35,15 +34,15 @@ var _ retrievalmarket.RetrievalClientNode = new(RetrievalClientConnector)
 // NewRetrievalClientConnector creates a new RetrievalClientConnector
 func NewRetrievalClientConnector(
 	bs blockstore.Blockstore,
-	cs ChainReaderAPI,
+	cs connectors.ChainReader,
 	signer RetrievalSigner,
 	paychMgr PaychMgrAPI,
 ) *RetrievalClientConnector {
 	return &RetrievalClientConnector{
-		bs:       bs,
-		cs:       cs,
-		paychMgr: paychMgr,
-		signer:   signer,
+		bs:          bs,
+		chainReader: cs,
+		paychMgr:    paychMgr,
+		signer:      signer,
 	}
 }
 
@@ -62,7 +61,7 @@ func (r *RetrievalClientConnector) GetOrCreatePaymentChannel(ctx context.Context
 	}
 	if chinfo.IsZero() {
 		// create the payment channel
-		bal, err := r.getBalance(ctx, clientAddress, tok)
+		bal, err := connectors.GetBalance(ctx, r.chainReader, clientAddress, tok)
 		if err != nil {
 			return address.Undef, err
 		}
@@ -84,12 +83,12 @@ func (r *RetrievalClientConnector) AllocateLane(paymentChannel address.Address) 
 
 // CreatePaymentVoucher creates a payment voucher for the retrieval client.
 func (r *RetrievalClientConnector) CreatePaymentVoucher(ctx context.Context, paychAddr address.Address, amount abi.TokenAmount, lane uint64, tok shared.TipSetToken) (*paychActor.SignedVoucher, error) {
-	height, err := r.getBlockHeight(tok)
+	height, err := connectors.GetBlockHeight(r.chainReader, tok)
 	if err != nil {
 		return nil, err
 	}
 
-	bal, err := r.getBalance(ctx, paychAddr, tok)
+	bal, err := connectors.GetBalance(ctx, r.chainReader, paychAddr, tok)
 	if err != nil {
 		return nil, err
 	}
@@ -130,42 +129,6 @@ func (r *RetrievalClientConnector) CreatePaymentVoucher(ctx context.Context, pay
 	return &v, nil
 }
 
-func (r *RetrievalClientConnector) getBlockHeight(tok shared.TipSetToken) (abi.ChainEpoch, error) {
-	ts, err := r.getTipSet(tok)
-	if err != nil {
-		return 0, err
-	}
-	return ts.Height()
-}
-
-func (r *RetrievalClientConnector) getBalance(ctx context.Context, account address.Address, tok shared.TipSetToken) (types.AttoFIL, error) {
-	ts, err := r.getTipSet(tok)
-	if err != nil {
-		return types.ZeroAttoFIL, err
-	}
-
-	actor, err := r.cs.GetActorAt(ctx, ts.Key(), account)
-	if err != nil {
-		return types.ZeroAttoFIL, err
-	}
-
-	return actor.Balance, nil
-}
-
 func (r *RetrievalClientConnector) GetChainHead(ctx context.Context) (shared.TipSetToken, abi.ChainEpoch, error) {
-	return connectors.GetChainHead(r.cs)
-}
-
-func (r *RetrievalClientConnector) getTipSet(tok shared.TipSetToken) (block.TipSet, error) {
-	var tsk block.TipSetKey
-	if err := tsk.UnmarshalCBOR(tok); err != nil {
-		return block.TipSet{}, err
-	}
-
-	ts, err := r.cs.GetTipSet(tsk)
-	if err != nil {
-		return block.TipSet{}, err
-	}
-
-	return ts, nil
+	return connectors.GetChainHead(r.chainReader)
 }
