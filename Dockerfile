@@ -1,4 +1,4 @@
-FROM golang:1.13.9-stretch AS builder
+FROM golang:1.13-buster
 MAINTAINER Filecoin Dev Team
 
 RUN apt-get update && apt-get install -y ca-certificates file sudo clang jq
@@ -10,7 +10,7 @@ RUN curl -sSf https://sh.rustup.rs | sh -s -- -y
 
 ENV SRC_DIR /go/src/github.com/filecoin-project/go-filecoin
 ENV GO111MODULE on
-ARG FIL_PROOFS_PARAMETER_CACHE="./tmp/filecoin-proof-parameters"
+ARG FILECOIN_PARAMETER_CACHE="./tmp/filecoin-proof-parameters"
 ARG FILECOIN_USE_PRECOMPILED_RUST_PROOFS=yes
 ARG FILECOIN_USE_PRECOMPILED_BLS_SIGNATURES=yes
 
@@ -19,7 +19,6 @@ COPY . $SRC_DIR
 # Build the thing.
 RUN cd $SRC_DIR \
   && . $HOME/.cargo/env \
-  && git submodule update --init --recursive \
   && go run ./build/*go deps \
   && go run ./build/*go build
 
@@ -39,7 +38,7 @@ RUN set -x \
 
 
 # Now comes the actual target image, which aims to be as small as possible.
-FROM busybox:1.30.1-glibc AS filecoin
+FROM busybox:1-glibc AS filecoin
 MAINTAINER Filecoin Dev Team
 
 # Get the filecoin binary, entrypoint script, and TLS CAs from the build container.
@@ -50,7 +49,7 @@ COPY --from=builder $SRC_DIR/bin/container_daemon /usr/local/bin/start_filecoin
 COPY --from=builder $SRC_DIR/bin/devnet_start /usr/local/bin/devnet_start
 COPY --from=builder $SRC_DIR/bin/node_restart /usr/local/bin/node_restart
 COPY --from=builder $SRC_DIR/fixtures/ /data/
-COPY --from=builder $SRC_DIR/tools/gengen/gengen /usr/local/bin/gengen
+COPY --from=builder $SRC_DIR/gengen/gengen /usr/local/bin/gengen
 COPY --from=builder /tmp/su-exec/su-exec /sbin/su-exec
 COPY --from=builder /tmp/tini /sbin/tini
 COPY --from=builder /etc/ssl/certs /etc/ssl/certs
